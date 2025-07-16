@@ -39,51 +39,11 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- Tone.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
-    <!-- Firebase CDNs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Expose Firebase modules and Tone.js globally for the main script
-        window.firebaseApp = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged };
-        window.firebaseFirestore = { getFirestore, collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc, query };
-        window.Tone = Tone;
-
-        // Firebase configuration and global variables
-        // IMPORTANT: Replace these placeholder values with your actual Firebase project configuration.
-        // You can find these details in your Firebase project settings (Project settings -> General -> Your apps).
-        window.__firebase_config = typeof __firebase_config !== 'undefined' ? __firebase_config : JSON.stringify({
-            apiKey: "AIzaSyDBDThGIqFOPoFAzcT0ZatRqgR4rXE8hbM", // Your actual API Key
-            authDomain: "dingdinggong-eb4cf.firebaseapp.com",
-            projectId: "dingdinggong-eb4cf",
-            storageBucket: "dingdinggong-eb4cf.firebasestorage.app",
-            messagingSenderId: "447001407729",
-            appId: "1:447001407729:web:0742beaf57473789e5b950"
-        });
-        // Ensure appId defaults for standalone use if not provided by the environment
-        window.__app_id = typeof __app_id !== 'undefined' ? __app_id : 'dingdinggong-standalone'; 
-        // __initial_auth_token is no longer relevant as we are hardcoding userId
-    </script>
 
     <!-- Your React App code (now processed by Babel) -->
     <script type="text/babel">
-        // Access global variables and Firebase/Tone modules
-        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.firebaseApp;
-        const { getFirestore, collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc, query } = window.firebaseFirestore;
-        const Tone = window.Tone; // Access Tone.js from global scope
-
-        const firebaseConfig = JSON.parse(window.__firebase_config);
-        const appId = window.__app_id;
-        // const initialAuthToken = window.__initial_auth_token; // No longer needed
-
-        // Hardcode a user ID for consistent data across devices for a single user
-        // IMPORTANT: CHANGE THIS TO A UNIQUE STRING OF YOUR CHOICE!
-        const HARDCODED_USER_ID = "8U0I3jg2qxRHzRrJVjoVbgDdAY03"; 
-
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app); // Still need auth object for Firestore rules, even if not signing in
+        // Access Tone.js from global scope
+        const Tone = window.Tone;
 
         // Global sound instances
         const dingSynth = new Tone.Synth({
@@ -122,12 +82,12 @@
             };
         };
 
+        // Key for storing the single preset in local storage
+        const LOCAL_STORAGE_PRESET_KEY = "dingdinggong_current_preset";
+
         function App() {
-            // userId is now hardcoded, no longer state-driven by auth changes
-            const userId = HARDCODED_USER_ID; 
-            const [isAuthReady, setIsAuthReady] = React.useState(true); // Set to true as auth state is effectively 'ready' with hardcoded ID
-            const [presets, setPresets] = React.useState([]);
-            const [selectedPresetId, setSelectedPresetId] = React.useState(null);
+            // No userId needed as we are using local storage
+            const [currentPreset, setCurrentPreset] = React.useState(null);
             const [timerState, setTimerState] = React.useState('idle');
             const [elapsedTime, setElapsedTime] = React.useState(0);
             const timerRef = React.useRef(null);
@@ -135,86 +95,78 @@
             const [showPresetForm, setShowPresetForm] = React.useState(false);
             const [message, setMessage] = React.useState('');
 
-            const [showConfirmModal, setShowConfirmModal] = React.useState(false);
-            const [presetToDelete, setPresetToDelete] = React.useState(null);
-
             const dingPlayedRef = React.useRef({});
 
             const setMessageCallback = React.useCallback((msg) => {
                 setMessage(msg);
             }, []);
 
-            // Removed authentication useEffect as userId is hardcoded
-            // No need for onAuthStateChanged or signInAnonymously calls here.
-
+            // Load preset from local storage on initial mount
             React.useEffect(() => {
-                // Data fetching now directly uses the hardcoded userId
-                if (!userId) return; // Should not happen with hardcoded ID, but good practice
-
-                const presetsCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/dingdinggong_presets`);
-                const q = query(presetsCollectionRef);
-
-                const unsubscribe = onSnapshot(q, (snapshot) => {
-                    let fetchedPresets = snapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    
-                    fetchedPresets.sort((a, b) => a.createdAt - b.createdAt);
-
-                    setPresets(fetchedPresets);
-
-                    if (!selectedPresetId || !fetchedPresets.some(p => p.id === selectedPresetId)) {
-                        if (fetchedPresets.length > 0) {
-                            setSelectedPresetId(fetchedPresets[0].id);
-                        } else {
-                            setSelectedPresetId(null);
-                        }
+                try {
+                    const savedPreset = localStorage.getItem(LOCAL_STORAGE_PRESET_KEY);
+                    if (savedPreset) {
+                        setCurrentPreset(JSON.parse(savedPreset));
+                        setMessageCallback("Preset loaded from local storage.");
+                    } else {
+                        setMessageCallback("No preset found. Create one!");
                     }
-                    setMessageCallback('');
-                }, (error) => {
-                    console.error("Error fetching presets:", error);
-                    setMessageCallback(`Error loading presets: ${error.message}.`);
-                });
+                } catch (e) {
+                    console.error("Error loading preset from local storage:", e);
+                    setMessageCallback(`Error loading preset: ${e.message}.`);
+                }
+            }, [setMessageCallback]);
 
-                return () => unsubscribe();
-            }, [userId, selectedPresetId, setMessageCallback]); // Dependencies updated
+            // Save preset to local storage whenever it changes
+            React.useEffect(() => {
+                if (currentPreset) {
+                    try {
+                        localStorage.setItem(LOCAL_STORAGE_PRESET_KEY, JSON.stringify(currentPreset));
+                    } catch (e) {
+                        console.error("Error saving preset to local storage:", e);
+                        setMessageCallback(`Error saving preset: ${e.message}.`);
+                    }
+                } else {
+                    // If currentPreset becomes null (e.g., if we add a "clear preset" feature)
+                    localStorage.removeItem(LOCAL_STORAGE_PRESET_KEY);
+                }
+            }, [currentPreset, setMessageCallback]);
 
-            const getSelectedPreset = React.useCallback(() => {
-                return presets.find(p => p.id === selectedPresetId);
-            }, [presets, selectedPresetId]);
+            const totalDurationOfCurrentPreset = React.useMemo(() => {
+                if (!currentPreset || !currentPreset.intervals) {
+                    return 0;
+                }
+                return currentPreset.intervals.reduce((sum, interval) => sum + interval.duration, 0);
+            }, [currentPreset]);
 
-            const selectedPreset = getSelectedPreset();
-
-            const { totalDurationOfSelectedPreset, cumulativeIntervalDurations } = React.useMemo(() => {
-                if (!selectedPreset) {
-                    return { totalDurationOfSelectedPreset: 0, cumulativeIntervalDurations: [] };
+            const cumulativeIntervalDurations = React.useMemo(() => {
+                if (!currentPreset || !currentPreset.intervals) {
+                    return [];
                 }
                 let cumulative = 0;
-                const cumulativeDurations = selectedPreset.intervals.map(interval => {
+                return currentPreset.intervals.map(interval => {
                     cumulative += interval.duration;
                     return cumulative;
                 });
-                return { totalDurationOfSelectedPreset: cumulative, cumulativeIntervalDurations: cumulativeDurations };
-            }, [selectedPreset]);
+            }, [currentPreset]);
 
             React.useEffect(() => {
-                totalDurationRef.current = totalDurationOfSelectedPreset;
+                totalDurationRef.current = totalDurationOfCurrentPreset;
                 setElapsedTime(0);
                 setTimerState('idle');
                 dingPlayedRef.current = {};
-            }, [selectedPresetId, totalDurationOfSelectedPreset]);
+            }, [currentPreset, totalDurationOfCurrentPreset]);
 
             const currentIntervalInfo = React.useMemo(() => {
-                if (!selectedPreset || selectedPreset.intervals.length === 0) {
+                if (!currentPreset || currentPreset.intervals.length === 0) {
                     return { index: 0, duration: 0, timeElapsedInInterval: 0, totalIntervalCount: 0 };
                 }
 
                 let intervalIdx = 0;
                 let cumulativeTimeAtStartOfCurrentInterval = 0;
 
-                for (let i = 0; i < selectedPreset.intervals.length; i++) {
-                    const intervalDuration = selectedPreset.intervals[i].duration;
+                for (let i = 0; i < currentPreset.intervals.length; i++) {
+                    const intervalDuration = currentPreset.intervals[i].duration;
                     if (elapsedTime < cumulativeTimeAtStartOfCurrentInterval + intervalDuration) {
                         intervalIdx = i;
                         break;
@@ -223,26 +175,26 @@
                     intervalIdx = i;
                 }
 
-                if (elapsedTime >= totalDurationOfSelectedPreset && selectedPreset.intervals.length > 0) {
-                    intervalIdx = selectedPreset.intervals.length - 1;
+                if (elapsedTime >= totalDurationOfCurrentPreset && currentPreset.intervals.length > 0) {
+                    intervalIdx = currentPreset.intervals.length - 1;
                 }
 
-                const durationOfCurrentInterval = selectedPreset.intervals[intervalIdx]?.duration || 0;
+                const durationOfCurrentInterval = currentPreset.intervals[intervalIdx]?.duration || 0;
                 const timeElapsedInCurrentInterval = elapsedTime - cumulativeTimeAtStartOfCurrentInterval;
 
                 return {
                     index: intervalIdx,
                     duration: durationOfCurrentInterval,
                     timeElapsedInInterval: timeElapsedInCurrentInterval,
-                    totalIntervalCount: selectedPreset.intervals.length
+                    totalIntervalCount: currentPreset.intervals.length
                 };
-            }, [elapsedTime, selectedPreset, totalDurationOfSelectedPreset]);
+            }, [elapsedTime, currentPreset, totalDurationOfCurrentPreset]);
 
             const startTimer = React.useCallback(() => {
                 if (timerState === 'running') return;
 
-                if (!selectedPreset || selectedPreset.intervals.length === 0) {
-                    setMessageCallback("Please create or select a preset with intervals before starting.");
+                if (!currentPreset || currentPreset.intervals.length === 0) {
+                    setMessageCallback("Please create a preset with intervals before starting.");
                     return;
                 }
 
@@ -279,7 +231,7 @@
                         return nextElapsed;
                     });
                 }, 1000);
-            }, [timerState, selectedPreset, cumulativeIntervalDurations, totalDurationOfSelectedPreset, setMessageCallback]);
+            }, [timerState, currentPreset, cumulativeIntervalDurations, totalDurationOfCurrentPreset, setMessageCallback]);
 
             const pauseTimer = React.useCallback(() => {
                 clearInterval(timerRef.current);
@@ -295,54 +247,22 @@
                 dingPlayedRef.current = {};
             }, []);
 
-            const addPreset = React.useCallback(async (presetData) => {
-                // userId is now hardcoded, so it's always "authenticated" for this purpose
-                try {
-                    await addDoc(collection(db, `artifacts/${appId}/users/${userId}/dingdinggong_presets`), {
-                        ...presetData,
-                        createdAt: Date.now()
-                    });
-                    setMessageCallback("Preset added successfully!");
-                    setShowPresetForm(false);
-                } catch (e) {
-                    console.error("Error adding document: ", e);
-                    setMessageCallback(`Error adding preset: ${e.message}`);
-                }
-            }, [userId, appId, setMessageCallback]);
+            // Function to save/update the single preset
+            const savePreset = React.useCallback((presetData) => {
+                setCurrentPreset(presetData);
+                setMessageCallback("Preset saved successfully!");
+                setShowPresetForm(false);
+            }, [setMessageCallback]);
 
-            const handleDeleteRequest = React.useCallback((id, name) => {
-                setPresetToDelete({ id, name });
-                setShowConfirmModal(true);
-            }, []);
-
-            const confirmDelete = React.useCallback(async () => {
-                if (!presetToDelete) { // userId is always available now
-                    return;
-                }
-                try {
-                    await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/dingdinggong_presets`, presetToDelete.id));
-                    setMessageCallback("Preset deleted successfully!");
-                    setPresetToDelete(null);
-                    setShowConfirmModal(false);
-                } catch (e) {
-                    console.error("Error deleting document: ", e);
-                    setMessageCallback(`Error deleting preset: ${e.message}`);
-                }
-            }, [userId, appId, presetToDelete, setMessageCallback]);
-
-            const cancelDelete = React.useCallback(() => {
-                setPresetToDelete(null);
-                setShowConfirmModal(false);
-            }, []);
-
+            // Circular progress bar calculations
             const radius = 45;
             const circumference = 2 * Math.PI * radius;
             const strokeWidth = 8;
             const centerX = 50;
             const centerY = 50;
 
-            const progressPercentage = totalDurationOfSelectedPreset > 0
-                ? (elapsedTime / totalDurationOfSelectedPreset) * 100
+            const progressPercentage = totalDurationOfCurrentPreset > 0
+                ? (elapsedTime / totalDurationOfCurrentPreset) * 100
                 : 0;
 
             const progressOffset = circumference - (progressPercentage / 100) * circumference;
@@ -350,18 +270,19 @@
             const intervalMarkerPoints = React.useMemo(() => {
                 const points = [];
                 let cumulativeAngle = 0;
-                if (selectedPreset && totalDurationOfSelectedPreset > 0) {
-                    selectedPreset.intervals.forEach((interval, index) => {
-                        const intervalAngle = (interval.duration / totalDurationOfSelectedPreset) * 360;
+                if (currentPreset && totalDurationOfCurrentPreset > 0) {
+                    currentPreset.intervals.forEach((interval, index) => {
+                        const intervalAngle = (interval.duration / totalDurationOfCurrentPreset) * 360;
                         cumulativeAngle += intervalAngle;
-                        if (index < selectedPreset.intervals.length - 1) {
+                        if (index < currentPreset.intervals.length - 1) {
                             const markerPoint = getCirclePoint(centerX, centerY, radius, cumulativeAngle);
                             points.push(markerPoint);
                         }
                     });
                 }
                 return points;
-            }, [selectedPreset, totalDurationOfSelectedPreset]);
+            }, [currentPreset, totalDurationOfCurrentPreset]);
+
 
             return (
                 <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 p-4 text-gray-100 font-sans flex flex-col items-center">
@@ -369,24 +290,25 @@
                         DingDingGong Timer
                     </h1>
 
-                    {/* Display the hardcoded User ID */}
-                    <div className="mb-4 text-sm text-center bg-purple-700 bg-opacity-70 rounded-full px-4 py-2 shadow-md">
-                        <span className="font-semibold">Your User ID:</span> {userId}
-                    </div>
+                    {/* Removed User ID Display - not relevant for local storage */}
 
+                    {/* Global Message Display */}
                     {message && (
                         <div className="bg-yellow-400 text-gray-900 font-bold px-4 py-3 rounded-lg mb-4 text-center shadow-lg animate-bounce-once">
                             {message}
                         </div>
                     )}
 
+                    {/* Timer Display Section */}
                     <div className="w-full max-w-lg bg-gray-800 bg-opacity-70 rounded-xl p-6 mb-8 shadow-2xl backdrop-blur-sm border border-purple-700 flex flex-col items-center justify-center">
                         <h2 className="text-2xl font-bold mb-4 text-center text-purple-200">
-                            {selectedPreset ? selectedPreset.name : "No Preset Selected"}
+                            {currentPreset ? currentPreset.name : "No Preset Set"}
                         </h2>
 
+                        {/* Circular Progress Bar and Timer Display */}
                         <div className="relative w-48 h-48 flex items-center justify-center mb-6">
                             <svg className="absolute w-full h-full" viewBox="0 0 100 100">
+                                {/* Background track */}
                                 <circle
                                     cx={centerX}
                                     cy={centerY}
@@ -395,6 +317,7 @@
                                     stroke="#4B5563"
                                     strokeWidth={strokeWidth}
                                 />
+                                {/* Progress fill */}
                                 <circle
                                     cx={centerX}
                                     cy={centerY}
@@ -404,17 +327,18 @@
                                     strokeWidth={strokeWidth}
                                     strokeDasharray={circumference}
                                     strokeDashoffset={progressOffset}
-                                    transform="rotate(-90 50 50)"
-                                    className="transition-all duration-1000 ease-linear"
+                                    transform="rotate(-90 50 50)" // Start at 12 o'clock
+                                    className="transition-all duration-1000 ease-linear" // Animate smoothly
                                 />
+                                {/* Interval markers */}
                                 {intervalMarkerPoints.map((point, index) => (
                                     <circle
                                         key={`marker-${index}`}
                                         cx={point.x}
                                         cy={point.y}
-                                        r="3"
-                                        fill="#FFFFFF"
-                                        stroke="#4B5563"
+                                        r="3" // Small radius for the marker dot
+                                        fill="#FFFFFF" // White dot
+                                        stroke="#4B5563" // Dark border for contrast
                                         strokeWidth="1"
                                     />
                                 ))}
@@ -429,6 +353,7 @@
                             </div>
                         </div>
                         
+                        {/* Timer Controls */}
                         <div className="flex justify-center space-x-4">
                             {timerState !== 'running' && timerState !== 'finished' && (
                                 <button
@@ -460,109 +385,100 @@
                         </div>
                     </div>
 
+                    {/* Preset Management Section - now for a single preset */}
                     <div className="w-full max-w-lg bg-gray-800 bg-opacity-70 rounded-xl p-6 shadow-2xl backdrop-blur-sm border border-purple-700">
                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-2xl font-bold text-purple-200">Your Presets</h2>
+                            <h2 className="text-2xl font-bold text-purple-200">Current Preset</h2>
                             <button
                                 onClick={() => setShowPresetForm(!showPresetForm)}
                                 className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 active:scale-95 flex items-center"
                             >
                                 <svg className="w-5 h-5 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd"></path></svg>
-                                {showPresetForm ? 'Cancel Add' : 'New Preset'}
+                                {showPresetForm ? 'Cancel Edit' : (currentPreset ? 'Edit Preset' : 'Create Preset')}
                             </button>
                         </div>
 
+                        {/* Preset Creation/Edit Form */}
                         {showPresetForm && (
                             <PresetForm
-                                addPreset={addPreset}
+                                currentPreset={currentPreset} // Pass current preset for editing
+                                onSavePreset={savePreset} // New prop name
                                 onCancel={() => setShowPresetForm(false)}
                                 setMessage={setMessageCallback}
                             />
                         )}
 
-                        <div className="mt-4 space-y-3">
-                            {presets.length === 0 ? (
-                                <p className="text-center text-gray-400">No presets saved yet. Create one!</p>
-                            ) : (
-                                presets.map((preset) => (
+                        {/* Display of the current preset */}
+                        {!showPresetForm && (
+                            <div className="mt-4 space-y-3">
+                                {currentPreset ? (
                                     <div
-                                        key={preset.id}
-                                        className={`flex items-center justify-between p-4 rounded-lg shadow-md cursor-pointer transition-all duration-200
-                                            ${selectedPresetId === preset.id ? 'bg-purple-700 border-2 border-green-400' : 'bg-gray-700 hover:bg-gray-600'}`}
-                                        onClick={() => setSelectedPresetId(preset.id)}
+                                        className="flex items-center justify-between p-4 rounded-lg shadow-md bg-gray-700 border-2 border-purple-700"
                                     >
-                                        <span className="font-semibold text-lg">{preset.name}</span>
+                                        <span className="font-semibold text-lg">{currentPreset.name}</span>
                                         <div className="flex items-center space-x-2">
                                             <span className="text-sm text-gray-300">
-                                                {preset.intervals.length} intervals, Total: {formatTime(preset.intervals.reduce((sum, int) => sum + int.duration, 0))}
+                                                {currentPreset.intervals.length} intervals, Total: {formatTime(totalDurationOfCurrentPreset)}
                                             </span>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleDeleteRequest(preset.id, preset.name);
-                                                }}
-                                                className="bg-red-600 hover:bg-red-700 text-white p-2 rounded-full shadow-sm transition-all duration-300 transform hover:scale-110 active:scale-90"
-                                                title="Delete Preset"
-                                            >
-                                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm3 3a1 1 0 011-1h1a1 1 0 110 2h-1a1 1 0 01-1-1z" clipRule="evenodd"></path></svg>
-                                            </button>
+                                            {/* Removed delete button as we manage a single preset */}
                                         </div>
                                     </div>
-                                ))
-                            )}
-                        </div>
+                                ) : (
+                                    <p className="text-center text-gray-400">No preset set yet. Click "Create Preset" to begin!</p>
+                                )}
+                            </div>
+                        )}
                     </div>
 
-                    {showConfirmModal && presetToDelete && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                            <div className="bg-gray-800 p-6 rounded-lg shadow-xl text-center border border-purple-700">
-                                <p className="text-xl font-semibold mb-4 text-purple-200">Confirm Deletion</p>
-                                <p className="mb-6 text-gray-100">Are you sure you want to delete preset "<span className="font-bold text-red-400">{presetToDelete.name}</span>"?</p>
-                                <div className="flex justify-center space-x-4">
-                                    <button
-                                        onClick={confirmDelete}
-                                        className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-5 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 active:scale-95"
-                                    >
-                                        Delete
-                                    </button>
-                                    <button
-                                        onClick={cancelDelete}
-                                        className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-5 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 active:scale-95"
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                    {/* Removed Confirmation Modal - not needed for single preset management */}
                 </div>
             );
         }
 
-        function PresetForm({ addPreset, onCancel, setMessage }) {
-            const [presetName, setPresetName] = React.useState('');
-            const [intervals, setIntervals] = React.useState([]);
-            const [currentIntervalDurationMinutes, setCurrentIntervalDurationMinutes] = React.useState(1);
+        /**
+         * PresetForm Component.
+         * Allows users to create or edit the single preset and define intervals.
+         */
+        function PresetForm({ currentPreset, onSavePreset, onCancel, setMessage }) {
+            const [presetName, setPresetName] = React.useState(currentPreset ? currentPreset.name : '');
+            const [intervals, setIntervals] = React.useState(currentPreset ? currentPreset.intervals : []); // { duration: number } - duration in seconds
+            const [currentIntervalDurationMinutes, setCurrentIntervalDurationMinutes] = React.useState(1); // Default to 1 minute
 
+            // Dynamic calculation of total duration and interval count
             const totalDuration = intervals.reduce((sum, interval) => sum + interval.duration, 0);
             const totalIntervalCount = intervals.length;
 
+            /**
+             * Handles adding a new interval to the list.
+             * Converts minutes to seconds.
+             * Pre-populates the next input with the current duration.
+             */
             const handleAddInterval = () => {
-                const durationMinutes = parseFloat(currentIntervalDurationMinutes);
+                const durationMinutes = parseFloat(currentIntervalDurationMinutes); // Use parseFloat for decimals
                 if (isNaN(durationMinutes) || durationMinutes <= 0) {
                     setMessage("Please enter a valid positive duration for the interval.");
                     return;
                 }
+                // Convert minutes to seconds for storage
                 const durationSeconds = Math.round(durationMinutes * 60); 
                 setIntervals(prev => [...prev, { duration: durationSeconds }]);
+                // Pre-populate next input with the same duration in minutes
                 setCurrentIntervalDurationMinutes(durationMinutes);
                 setMessage('');
             };
 
+            /**
+             * Handles removing an interval by its index.
+             * @param {number} indexToRemove - The index of the interval to remove.
+             */
             const handleRemoveInterval = (indexToRemove) => {
                 setIntervals(prev => prev.filter((_, index) => index !== indexToRemove));
             };
 
+            /**
+             * Handles saving the new/edited preset.
+             * Calls the onSavePreset function passed from the parent component.
+             */
             const handleSavePreset = (e) => {
                 e.preventDefault();
                 if (!presetName.trim()) {
@@ -573,15 +489,15 @@
                     setMessage("Please add at least one interval to your preset.");
                     return;
                 }
-                addPreset({ name: presetName.trim(), intervals });
-                setPresetName('');
-                setIntervals([]);
-                setCurrentIntervalDurationMinutes(1);
+                onSavePreset({ name: presetName.trim(), intervals });
+                // No need to reset form fields here, parent handles closing
             };
 
             return (
                 <form onSubmit={handleSavePreset} className="bg-gray-700 p-5 rounded-lg shadow-inner mb-6 border border-gray-600">
-                    <h3 className="text-xl font-bold mb-4 text-purple-300">Create New Preset</h3>
+                    <h3 className="text-xl font-bold mb-4 text-purple-300">
+                        {currentPreset ? 'Edit Current Preset' : 'Create New Preset'}
+                    </h3>
                     <div className="mb-4">
                         <label htmlFor="presetName" className="block text-gray-200 text-sm font-bold mb-2">Preset Name</label>
                         <input
@@ -602,10 +518,10 @@
                                 type="number"
                                 id="intervalDuration"
                                 value={currentIntervalDurationMinutes}
-                                onChange={(e) => setCurrentIntervalDurationMinutes(e.target.value)}
+                                onChange={(e) => setCurrentIntervalDurationMinutes(e.target.value)} // Keep as string for decimal input
                                 className="shadow appearance-none border border-gray-600 rounded-lg w-full py-2 px-3 text-gray-900 leading-tight focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-300"
-                                min="0.1"
-                                step="0.1"
+                                min="0.1" // Allow small decimal inputs
+                                step="0.1" // Allow decimal steps
                                 required
                             />
                             <button
@@ -624,7 +540,7 @@
                             <ul className="list-disc list-inside space-y-1 text-gray-200">
                                 {intervals.map((interval, index) => (
                                     <li key={index} className="flex justify-between items-center text-sm">
-                                        <span>Interval {index + 1}: {interval.duration} seconds</span>
+                                        <span>Interval {index + 1}: {formatTime(interval.duration)}</span> {/* Display in MM:SS */}
                                         <button
                                             type="button"
                                             onClick={() => handleRemoveInterval(index)}
