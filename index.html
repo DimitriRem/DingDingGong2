@@ -54,16 +54,16 @@
         // IMPORTANT: Replace these placeholder values with your actual Firebase project configuration.
         // You can find these details in your Firebase project settings (Project settings -> General -> Your apps).
         window.__firebase_config = typeof __firebase_config !== 'undefined' ? __firebase_config : JSON.stringify({
-            apiKey: "AIzaSyDBDThGIqFOPoFAzcT0ZatRqgR4rXE8hbM", // <--- REPLACE THIS
-            authDomain: "dingdinggong-eb4cf.firebaseapp.com", // <--- REPLACE THIS (e.g., my-project-12345.firebaseapp.com)
-            projectId: "dingdinggong-eb4cf", // <--- REPLACE THIS (e.g., my-project-12345)
-            storageBucket: "dingdinggong-eb4cf.firebasestorage.app", // <--- REPLACE THIS (e.g., my-project-12345.appspot.com)
-            messagingSenderId: "447001407729", // <--- REPLACE THIS
-            appId: "1:447001407729:web:0742beaf57473789e5b950" // <--- REPLACE THIS
+            apiKey: "AIzaSyDBDThGIqFOPoFAzcT0ZatRqgR4rXE8hbM", // Your actual API Key
+            authDomain: "dingdinggong-eb4cf.firebaseapp.com",
+            projectId: "dingdinggong-eb4cf",
+            storageBucket: "dingdinggong-eb4cf.firebasestorage.app",
+            messagingSenderId: "447001407729",
+            appId: "1:447001407729:web:0742beaf57473789e5b950"
         });
         // Ensure appId defaults for standalone use if not provided by the environment
         window.__app_id = typeof __app_id !== 'undefined' ? __app_id : 'dingdinggong-standalone'; 
-        window.__initial_auth_token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // __initial_auth_token is no longer relevant as we are hardcoding userId
     </script>
 
     <!-- Your React App code (now processed by Babel) -->
@@ -75,11 +75,15 @@
 
         const firebaseConfig = JSON.parse(window.__firebase_config);
         const appId = window.__app_id;
-        const initialAuthToken = window.__initial_auth_token;
+        // const initialAuthToken = window.__initial_auth_token; // No longer needed
+
+        // Hardcode a user ID for consistent data across devices for a single user
+        // IMPORTANT: CHANGE THIS TO A UNIQUE STRING OF YOUR CHOICE!
+        const HARDCODED_USER_ID = "my-unique-dingdinggong-user-id-12345"; 
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const auth = getAuth(app);
+        const auth = getAuth(app); // Still need auth object for Firestore rules, even if not signing in
 
         // Global sound instances
         const dingSynth = new Tone.Synth({
@@ -119,8 +123,9 @@
         };
 
         function App() {
-            const [userId, setUserId] = React.useState(null);
-            const [isAuthReady, setIsAuthReady] = React.useState(false);
+            // userId is now hardcoded, no longer state-driven by auth changes
+            const userId = HARDCODED_USER_ID; 
+            const [isAuthReady, setIsAuthReady] = React.useState(true); // Set to true as auth state is effectively 'ready' with hardcoded ID
             const [presets, setPresets] = React.useState([]);
             const [selectedPresetId, setSelectedPresetId] = React.useState(null);
             const [timerState, setTimerState] = React.useState('idle');
@@ -139,50 +144,13 @@
                 setMessage(msg);
             }, []);
 
-            React.useEffect(() => {
-                const authenticate = async () => {
-                    // Always attempt anonymous sign-in if no initialAuthToken is provided
-                    if (initialAuthToken) {
-                        try {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                            setMessageCallback('');
-                        } catch (error) {
-                            console.warn("Firebase: Custom token sign-in failed, attempting anonymous sign-in:", error);
-                            try {
-                                await signInAnonymously(auth);
-                                setMessageCallback('');
-                            } catch (anonError) {
-                                console.error("Firebase authentication error (anonymous fallback also failed):", anonError);
-                                setMessageCallback(`Authentication error: ${anonError.message}. Please try again.`);
-                            }
-                        }
-                    } else {
-                        try {
-                            await signInAnonymously(auth);
-                            setMessageCallback('');
-                        } catch (error) {
-                            console.error("Firebase authentication error (anonymous sign-in failed):", error);
-                            setMessageCallback(`Authentication error: ${error.message}. Please try again.`);
-                        }
-                    }
-                };
-
-                const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        setUserId(user.uid);
-                    } else {
-                        authenticate(); // Trigger authentication if no user is found
-                    }
-                    setIsAuthReady(true);
-                });
-
-                return () => unsubscribeAuth();
-            }, [setMessageCallback]);
+            // Removed authentication useEffect as userId is hardcoded
+            // No need for onAuthStateChanged or signInAnonymously calls here.
 
             React.useEffect(() => {
-                if (!isAuthReady || !userId) return;
+                // Data fetching now directly uses the hardcoded userId
+                if (!userId) return; // Should not happen with hardcoded ID, but good practice
 
-                // Use the dynamically set appId for the collection path
                 const presetsCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/dingdinggong_presets`);
                 const q = query(presetsCollectionRef);
 
@@ -210,7 +178,7 @@
                 });
 
                 return () => unsubscribe();
-            }, [isAuthReady, userId, selectedPresetId, setMessageCallback]);
+            }, [userId, selectedPresetId, setMessageCallback]); // Dependencies updated
 
             const getSelectedPreset = React.useCallback(() => {
                 return presets.find(p => p.id === selectedPresetId);
@@ -328,12 +296,8 @@
             }, []);
 
             const addPreset = React.useCallback(async (presetData) => {
-                if (!userId) {
-                    setMessageCallback("User not authenticated. Please wait or refresh.");
-                    return;
-                }
+                // userId is now hardcoded, so it's always "authenticated" for this purpose
                 try {
-                    // Use the dynamically set appId for the collection path
                     await addDoc(collection(db, `artifacts/${appId}/users/${userId}/dingdinggong_presets`), {
                         ...presetData,
                         createdAt: Date.now()
@@ -352,11 +316,10 @@
             }, []);
 
             const confirmDelete = React.useCallback(async () => {
-                if (!userId || !presetToDelete) {
+                if (!presetToDelete) { // userId is always available now
                     return;
                 }
                 try {
-                    // Use the dynamically set appId for the collection path
                     await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/dingdinggong_presets`, presetToDelete.id));
                     setMessageCallback("Preset deleted successfully!");
                     setPresetToDelete(null);
@@ -406,11 +369,10 @@
                         DingDingGong Timer
                     </h1>
 
-                    {userId && (
-                        <div className="mb-4 text-sm text-center bg-purple-700 bg-opacity-70 rounded-full px-4 py-2 shadow-md">
-                            <span className="font-semibold">Your User ID:</span> {userId}
-                        </div>
-                    )}
+                    {/* Display the hardcoded User ID */}
+                    <div className="mb-4 text-sm text-center bg-purple-700 bg-opacity-70 rounded-full px-4 py-2 shadow-md">
+                        <span className="font-semibold">Your User ID:</span> {userId}
+                    </div>
 
                     {message && (
                         <div className="bg-yellow-400 text-gray-900 font-bold px-4 py-3 rounded-lg mb-4 text-center shadow-lg animate-bounce-once">
